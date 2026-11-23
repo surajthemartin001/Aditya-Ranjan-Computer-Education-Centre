@@ -21,6 +21,9 @@ export interface WebsiteSettings {
   installmentNote: string;
   scholarshipNote: string;
   footerNote: string;
+  heroImageUrl?: string;
+  classroomImageUrl?: string;
+  directorPhotoUrl?: string;
   updatedAt?: unknown;
 }
 
@@ -204,6 +207,22 @@ export interface StaffProfile {
   isActive: boolean;
   inviteKey?: string;
   createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface StaffInvite {
+  id: string;
+  email: string;
+  phone?: string;
+  name: string;
+  role: StaffRole;
+  designation: string;
+  qualification?: string;
+  assignedCourseIds: string[];
+  assignedBatchIds: string[];
+  permissions: TeacherPermissions;
+  isActive: boolean;
+  claimedUid?: string;
   updatedAt?: unknown;
 }
 

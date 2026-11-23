@@ -49,6 +49,7 @@ import type {
   Payment,
   PublicFaculty,
   PublicNotice,
+  StaffInvite,
   StaffProfile,
   StudentProfile,
   StudyMaterial,
@@ -930,6 +931,70 @@ export async function deleteStorageFile(storagePath?: string) {
   }
 }
 
+export async function compressImageToDataUrl(
+  file: File,
+  maxWidth = 1200,
+  quality = 0.78
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read selected image file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Selected file is not a valid image.'));
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / Math.max(img.width, img.height, 1));
+        const width = Math.max(1, Math.round(img.width * scale));
+        const height = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Image canvas not supported in browser.'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        let dataUrl = canvas.toDataURL('image/webp', quality);
+        if (!dataUrl.startsWith('data:image/webp') || dataUrl.length > 260000) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+        }
+        if (dataUrl.length > 320000) {
+          const smallCanvas = document.createElement('canvas');
+          smallCanvas.width = Math.max(1, Math.round(width * 0.65));
+          smallCanvas.height = Math.max(1, Math.round(height * 0.65));
+          const sctx = smallCanvas.getContext('2d');
+          sctx?.drawImage(img, 0, 0, smallCanvas.width, smallCanvas.height);
+          dataUrl = smallCanvas.toDataURL('image/jpeg', 0.65);
+        }
+        resolve(dataUrl);
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function smartUploadImage(
+  file: File,
+  folder: 'public_gallery' | 'study_materials' | 'student_photos',
+  onProgress?: (pct: number) => void
+): Promise<{ url: string; storagePath: string; mode: 'storage' | 'optimized_inline' }> {
+  try {
+    const { promise } = uploadMediaFile(file, folder, onProgress);
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('storage-timeout')), 6500)
+    );
+    const res = await Promise.race([promise, timeout]);
+    return { url: res.url, storagePath: res.storagePath, mode: 'storage' };
+  } catch {
+    onProgress?.(60);
+    const dataUrl = await compressImageToDataUrl(file);
+    onProgress?.(100);
+    return { url: dataUrl, storagePath: '', mode: 'optimized_inline' };
+  }
+}
+
 // Re-export model helpers for convenience
 export type {
   AcademicSession,
@@ -951,6 +1016,7 @@ export type {
   Payment,
   PublicFaculty,
   PublicNotice,
+  StaffInvite,
   StaffProfile,
   StudentProfile,
   StudyMaterial,

@@ -153,7 +153,7 @@ service cloud.firestore {
         && isValidString(data.feeLabel, 2, 120)
         && isOptionalString(data, 'feeNote', 300)
         && isOptionalString(data, 'eligibility', 300)
-        && isOptionalString(data, 'imageUrl', 600)
+        && isOptionalString(data, 'imageUrl', 350000)
         && data.isPublished is bool
         && data.isActive is bool
         && (!('outcomes' in data) || (data.outcomes is list && data.outcomes.size() <= 20))
@@ -344,7 +344,7 @@ service cloud.firestore {
           && request.auth.uid == staffId
           && incoming().uid == request.auth.uid
           && incoming().email == request.auth.token.email
-          && incoming().role in ['head_teacher', 'teacher', 'staff']
+          && incoming().role in ['managing_director', 'head_teacher', 'teacher', 'staff']
           && 'inviteKey' in incoming()
           && isValidId(incoming().inviteKey)
           && exists(/databases/$(database)/documents/staffInvites/$(incoming().inviteKey))

@@ -1,3 +1,9 @@
+import heroLabImg from '../assets/images/hero_computer_lab_1795360519707.jpg';
+import adcaImg from '../assets/images/course_adca_workstation_1795360518998.jpg';
+import tallyImg from '../assets/images/course_tally_accounting_1795360528691.jpg';
+import typingImg from '../assets/images/course_typing_practice_1795360519172.jpg';
+import directorImg from '../assets/images/director_portrait_1795360530380.jpg';
+import classroomImg from '../assets/images/gallery_classroom_theory_1795360519997.jpg';
 import type {
   AcademicSession,
   Batch,
@@ -10,12 +16,12 @@ import type {
 } from '../types/models';
 
 export const INSTITUTE_IMAGES = {
-  heroLab: '/src/assets/images/hero_computer_lab_1795360519707.jpg',
-  adca: '/src/assets/images/course_adca_workstation_1795360518998.jpg',
-  tally: '/src/assets/images/course_tally_accounting_1795360528691.jpg',
-  typing: '/src/assets/images/course_typing_practice_1795360519172.jpg',
-  director: '/src/assets/images/director_portrait_1795360530380.jpg',
-  classroom: '/src/assets/images/gallery_classroom_theory_1795360519997.jpg',
+  heroLab: heroLabImg,
+  adca: adcaImg,
+  tally: tallyImg,
+  typing: typingImg,
+  director: directorImg,
+  classroom: classroomImg,
 };
 
 export const DEFAULT_WEBSITE_SETTINGS: WebsiteSettings = {
@@ -41,6 +47,9 @@ export const DEFAULT_WEBSITE_SETTINGS: WebsiteSettings = {
   installmentNote: 'Installment arrangements, where applicable, are configured by Management during admission.',
   scholarshipNote: 'Any verified fee concessions or scholarships will be published here only after Management approval.',
   footerNote: 'Established 2017 · High School Road, Simrahi Bazar, Supaul, Bihar – 852111.',
+  heroImageUrl: heroLabImg,
+  classroomImageUrl: classroomImg,
+  directorPhotoUrl: directorImg,
 };
 
 export const DEFAULT_WEBSITE_CONTENT: Record<string, WebsiteContent> = {

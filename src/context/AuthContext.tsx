@@ -54,6 +54,7 @@ interface AuthContextValue {
   statusMessage: string | null;
   signInStaffWithGoogle: () => Promise<ResolvedPortalRole>;
   signInStaffWithPassword: (email: string, password: string) => Promise<ResolvedPortalRole>;
+  registerStaffWithPassword: (email: string, password: string) => Promise<ResolvedPortalRole>;
   signInStudentWithRollAndPassword: (rollNumber: string, password: string) => Promise<void>;
   signInStudentWithGoogle: () => Promise<void>;
   activateStudentWithPassword: (params: {
@@ -298,6 +299,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return resolveAccount(cred.user);
   };
 
+  const registerStaffWithPassword = async (email: string, password: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) throw new Error('Enter your Management-registered Gmail address.');
+    if (password.length < 8) {
+      throw new Error('Choose a strong password of at least 8 characters.');
+    }
+    const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+    const resolved = await resolveAccount(cred.user);
+    if (resolved === 'unauthorized' || resolved === 'guest' || resolved === 'student') {
+      await signOut(auth);
+      throw new Error(
+        'This Gmail is not authorized in Management Staff Invites yet. Ask the Managing Director to add this Gmail first.'
+      );
+    }
+    return resolved;
+  };
+
   const signInStudentWithRollAndPassword = async (rollNumber: string, password: string) => {
     const rollKey = sanitizeRollKey(rollNumber);
     if (!rollKey) throw new Error('Please enter a valid institute-issued Roll Number.');
@@ -472,6 +490,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         statusMessage,
         signInStaffWithGoogle,
         signInStaffWithPassword,
+        registerStaffWithPassword,
         signInStudentWithRollAndPassword,
         signInStudentWithGoogle,
         activateStudentWithPassword,
