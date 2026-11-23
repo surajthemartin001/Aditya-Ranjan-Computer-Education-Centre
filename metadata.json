@@ -1,0 +1,6 @@
+{
+  "name": "Aditya Ranjan Computer Education Center",
+  "description": "Official public website, approval-based Student Portal, and role-based Management & Teacher Portal for Aditya Ranjan Computer Education Center, Simrahi Bazar, Supaul, Bihar (Est. 2017).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

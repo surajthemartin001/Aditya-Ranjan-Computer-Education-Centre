@@ -1,0 +1,629 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------
+    // Core Security Primitives
+    // ---------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrapAdmin() {
+      return isSignedIn()
+        && request.auth.token.email == 'surajthemartin001@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isBootstrapAdmin()
+        || (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function hasStaffDoc() {
+      return isSignedIn() && exists(/databases/$(database)/documents/staffProfiles/$(request.auth.uid));
+    }
+
+    function staffData() {
+      return get(/databases/$(database)/documents/staffProfiles/$(request.auth.uid)).data;
+    }
+
+    function isActiveStaff() {
+      return hasStaffDoc() && staffData().isActive == true;
+    }
+
+    function isManagingDirectorStaff() {
+      return isActiveStaff() && staffData().role == 'managing_director';
+    }
+
+    function isManagement() {
+      return isAdmin() || isManagingDirectorStaff();
+    }
+
+    function hasTeacherPermission(perm) {
+      return isActiveStaff()
+        && staffData().permissions is map
+        && staffData().permissions[perm] == true;
+    }
+
+    function hasUserDir() {
+      return isSignedIn() && exists(/databases/$(database)/documents/userDirectory/$(request.auth.uid));
+    }
+
+    function userDirData() {
+      return get(/databases/$(database)/documents/userDirectory/$(request.auth.uid)).data;
+    }
+
+    function isActiveStudent() {
+      return hasUserDir()
+        && userDirData().role == 'student'
+        && userDirData().status in ['approved', 'active', 'completed'];
+    }
+
+    function isOwnStudentData(data) {
+      return isActiveStudent() && (
+        (('studentUid' in data) && data.studentUid == request.auth.uid)
+        || (('studentId' in data) && data.studentId == userDirData().studentDocId)
+      );
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    // ---------------------------------------------------------
+    // Validation Blueprints
+    // ---------------------------------------------------------
+    function isValidEnquiry(data) {
+      return data.keys().hasAll([
+          'referenceNumber', 'applicantName', 'phone', 'interestedCourse', 'consentGiven', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'referenceNumber', 'applicantName', 'phone', 'email', 'interestedCourse',
+          'preferredBatch', 'qualification', 'message', 'consentGiven', 'status', 'internalNotes', 'createdAt', 'updatedAt'
+        ])
+        && isValidString(data.referenceNumber, 4, 40)
+        && isValidString(data.applicantName, 2, 140)
+        && isValidString(data.phone, 7, 25)
+        && isOptionalString(data, 'email', 160)
+        && isValidString(data.interestedCourse, 2, 120)
+        && isOptionalString(data, 'preferredBatch', 120)
+        && isOptionalString(data, 'qualification', 160)
+        && isOptionalString(data, 'message', 1500)
+        && data.consentGiven is bool
+        && data.status in ['new', 'contacted', 'converted', 'closed']
+        && isOptionalString(data, 'internalNotes', 1000);
+    }
+
+    function isValidAdmissionApplication(data) {
+      return data.keys().hasAll([
+          'applicationId', 'fullName', 'phone', 'address', 'qualification', 'selectedCourseName', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'applicationId', 'fullName', 'fatherOrGuardianName', 'dateOfBirth', 'phone', 'email',
+          'address', 'qualification', 'selectedCourseId', 'selectedCourseName', 'preferredBatch',
+          'documentNotes', 'status', 'internalNotes', 'issuedRollNumber', 'createdAt', 'updatedAt'
+        ])
+        && isValidString(data.applicationId, 4, 40)
+        && isValidString(data.fullName, 2, 140)
+        && isOptionalString(data, 'fatherOrGuardianName', 140)
+        && isOptionalString(data, 'dateOfBirth', 30)
+        && isValidString(data.phone, 7, 25)
+        && isOptionalString(data, 'email', 160)
+        && isValidString(data.address, 4, 400)
+        && isValidString(data.qualification, 2, 160)
+        && isOptionalString(data, 'selectedCourseId', 80)
+        && isValidString(data.selectedCourseName, 2, 140)
+        && isOptionalString(data, 'preferredBatch', 120)
+        && isOptionalString(data, 'documentNotes', 500)
+        && data.status in ['pending', 'approved', 'rejected', 'correction_requested']
+        && isOptionalString(data, 'internalNotes', 1000)
+        && isOptionalString(data, 'issuedRollNumber', 40);
+    }
+
+    function isValidCourse(data) {
+      return data.keys().hasAll(['code', 'name', 'duration', 'feeLabel', 'isPublished', 'isActive'])
+        && isValidString(data.code, 2, 40)
+        && isValidString(data.name, 2, 160)
+        && isOptionalString(data, 'nameHi', 200)
+        && isOptionalString(data, 'description', 2000)
+        && isOptionalString(data, 'descriptionHi', 2400)
+        && isValidString(data.duration, 2, 80)
+        && isValidString(data.feeLabel, 2, 120)
+        && isOptionalString(data, 'feeNote', 300)
+        && isOptionalString(data, 'eligibility', 300)
+        && isOptionalString(data, 'imageUrl', 600)
+        && data.isPublished is bool
+        && data.isActive is bool
+        && (!('outcomes' in data) || (data.outcomes is list && data.outcomes.size() <= 20))
+        && (!('syllabusOverview' in data) || (data.syllabusOverview is list && data.syllabusOverview.size() <= 30));
+    }
+
+    function isValidStudentProfile(data) {
+      return data.keys().hasAll(['rollNumber', 'studentIdCode', 'name', 'courseName', 'status'])
+        && isValidString(data.rollNumber, 3, 40)
+        && isValidString(data.studentIdCode, 3, 40)
+        && isValidString(data.name, 2, 140)
+        && isValidString(data.courseName, 2, 140)
+        && isOptionalString(data, 'uid', 128)
+        && isOptionalString(data, 'phone', 25)
+        && isOptionalString(data, 'email', 160)
+        && isOptionalString(data, 'address', 400)
+        && isOptionalString(data, 'photoUrl', 600)
+        && data.status in ['approved', 'active', 'suspended', 'completed'];
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll(['title', 'body', 'priority', 'audience', 'status', 'createdBy'])
+        && isValidString(data.title, 2, 200)
+        && isValidString(data.body, 2, 4000)
+        && data.priority in ['normal', 'important', 'urgent']
+        && data.audience in ['all_students', 'course', 'batch', 'teachers', 'staff', 'all_internal']
+        && data.status in ['draft', 'published', 'scheduled', 'archived']
+        && isValidString(data.createdBy, 1, 128);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['studentId', 'rollNumber', 'date', 'status', 'markedBy'])
+        && isValidString(data.studentId, 1, 128)
+        && isValidString(data.rollNumber, 3, 40)
+        && isValidString(data.date, 8, 20)
+        && data.status in ['present', 'absent', 'late']
+        && isValidString(data.markedBy, 1, 128)
+        && isOptionalString(data, 'remarks', 300);
+    }
+
+    function isValidExamResult(data) {
+      return data.keys().hasAll(['examId', 'studentId', 'studentUid', 'rollNumber', 'score', 'totalMarks', 'passed'])
+        && isValidString(data.examId, 1, 128)
+        && isValidString(data.studentId, 1, 128)
+        && isValidString(data.studentUid, 1, 128)
+        && isValidString(data.rollNumber, 3, 40)
+        && data.score is number && data.score >= 0
+        && data.totalMarks is number && data.totalMarks > 0
+        && data.passed is bool;
+    }
+
+    function isValidSubmission(data) {
+      return data.keys().hasAll(['assignmentId', 'studentId', 'studentUid', 'rollNumber', 'status'])
+        && isValidString(data.assignmentId, 1, 128)
+        && isValidString(data.studentId, 1, 128)
+        && isValidString(data.studentUid, 1, 128)
+        && isValidString(data.rollNumber, 3, 40)
+        && isOptionalString(data, 'submissionText', 3000)
+        && isOptionalString(data, 'attachmentUrl', 1000)
+        && data.status in ['submitted', 'graded'];
+    }
+
+    // ---------------------------------------------------------
+    // 1. Public Website Collections (Public Read where Published)
+    // ---------------------------------------------------------
+    match /websiteSettings/{settingId} {
+      allow get: if isValidId(settingId);
+      allow list: if true;
+      allow create, update, delete: if isValidId(settingId) && isManagement();
+    }
+
+    match /websiteContent/{pageId} {
+      allow get: if isValidId(pageId) && (existing().status == 'published' || isManagement());
+      allow list: if resource.data.status == 'published' || isManagement();
+      allow create, update, delete: if isValidId(pageId) && isManagement();
+    }
+
+    match /courses/{courseId} {
+      allow get: if isValidId(courseId) && ((existing().isPublished == true && existing().isActive == true) || isManagement() || isActiveStaff());
+      allow list: if (resource.data.isPublished == true && resource.data.isActive == true) || isManagement() || isActiveStaff();
+      allow create, update: if isValidId(courseId) && isManagement() && isValidCourse(incoming());
+      allow delete: if isValidId(courseId) && isManagement();
+    }
+
+    match /batches/{batchId} {
+      allow get: if isValidId(batchId) && (existing().isPublicTimetable == true || isManagement() || isActiveStaff() || isActiveStudent());
+      allow list: if resource.data.isPublicTimetable == true || isManagement() || isActiveStaff() || isActiveStudent();
+      allow create, update, delete: if isValidId(batchId) && isManagement();
+    }
+
+    match /publicFaculty/{facultyId} {
+      allow get: if isValidId(facultyId) && (existing().isPublished == true || isManagement());
+      allow list: if resource.data.isPublished == true || isManagement();
+      allow create, update, delete: if isValidId(facultyId) && isManagement();
+    }
+
+    match /publicNotices/{noticeId} {
+      allow get: if isValidId(noticeId) && (existing().isPublished == true || isManagement());
+      allow list: if resource.data.isPublished == true || isManagement();
+      allow create, update, delete: if isValidId(noticeId) && isManagement();
+    }
+
+    match /galleryMedia/{mediaId} {
+      allow get: if isValidId(mediaId) && (existing().isPublished == true || isManagement());
+      allow list: if resource.data.isPublished == true || isManagement();
+      allow create, update, delete: if isValidId(mediaId) && isManagement();
+    }
+
+    match /academicSessions/{sessionId} {
+      allow get: if isValidId(sessionId);
+      allow list: if true;
+      allow create, update, delete: if isValidId(sessionId) && isManagement();
+    }
+
+    // Limited public certificate verification (exact ID lookup only, no enumeration)
+    match /publicCertificates/{certificateId} {
+      allow get: if isValidId(certificateId);
+      allow list: if isManagement();
+      allow create, update, delete: if isValidId(certificateId) && isManagement();
+    }
+
+    // ---------------------------------------------------------
+    // 2. Public Submission Forms (Write-Only for Visitors)
+    // ---------------------------------------------------------
+    match /enquiries/{enquiryId} {
+      allow create: if isValidId(enquiryId)
+        && isValidEnquiry(incoming())
+        && incoming().consentGiven == true
+        && incoming().status == 'new'
+        && !('internalNotes' in incoming())
+        && incoming().createdAt == request.time;
+      allow get: if isValidId(enquiryId) && isManagement();
+      allow list: if isManagement();
+      allow update: if isValidId(enquiryId) && isManagement() && isValidEnquiry(incoming());
+      allow delete: if isValidId(enquiryId) && isManagement();
+    }
+
+    match /admissionApplications/{applicationId} {
+      allow create: if isValidId(applicationId)
+        && isValidAdmissionApplication(incoming())
+        && incoming().status == 'pending'
+        && !('internalNotes' in incoming())
+        && !('issuedRollNumber' in incoming())
+        && incoming().createdAt == request.time;
+      allow get: if isValidId(applicationId) && isManagement();
+      allow list: if isManagement();
+      allow update: if isValidId(applicationId) && isManagement() && isValidAdmissionApplication(incoming());
+      allow delete: if isValidId(applicationId) && isManagement();
+    }
+
+    // ---------------------------------------------------------
+    // 3. Role, Staff & Student Identity Isolation
+    // ---------------------------------------------------------
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && (isManagement() || (isSignedIn() && request.auth.uid == adminUid));
+      allow list: if isManagement();
+      allow create, update, delete: if isValidId(adminUid) && isManagement();
+    }
+
+    match /staffInvites/{emailKey} {
+      allow get: if isValidId(emailKey) && (
+        isManagement()
+        || (isSignedIn() && existing().email == request.auth.token.email && existing().isActive == true)
+      );
+      allow list: if isManagement();
+      allow create, delete: if isValidId(emailKey) && isManagement();
+      allow update: if isValidId(emailKey) && (
+        isManagement()
+        || (
+          isSignedIn()
+          && existing().email == request.auth.token.email
+          && existing().isActive == true
+          && incoming().claimedUid == request.auth.uid
+          && incoming().email == existing().email
+          && incoming().role == existing().role
+          && incoming().diff(existing()).affectedKeys().hasOnly(['claimedUid', 'updatedAt'])
+        )
+      );
+    }
+
+    match /staffProfiles/{staffId} {
+      allow get: if isValidId(staffId) && (isManagement() || (isSignedIn() && request.auth.uid == staffId));
+      allow list: if isManagement();
+      allow create: if isValidId(staffId) && (
+        isManagement()
+        || (
+          isSignedIn()
+          && request.auth.uid == staffId
+          && incoming().uid == request.auth.uid
+          && incoming().email == request.auth.token.email
+          && incoming().role in ['head_teacher', 'teacher', 'staff']
+          && 'inviteKey' in incoming()
+          && isValidId(incoming().inviteKey)
+          && exists(/databases/$(database)/documents/staffInvites/$(incoming().inviteKey))
+          && get(/databases/$(database)/documents/staffInvites/$(incoming().inviteKey)).data.email == request.auth.token.email
+          && get(/databases/$(database)/documents/staffInvites/$(incoming().inviteKey)).data.role == incoming().role
+          && get(/databases/$(database)/documents/staffInvites/$(incoming().inviteKey)).data.isActive == true
+        )
+      );
+      allow update, delete: if isValidId(staffId) && isManagement();
+    }
+
+    // Minimal non-PII lookup by Roll Number to map Roll Number -> login email & active status
+    match /studentLoginLookup/{rollNumber} {
+      allow get: if isValidId(rollNumber);
+      allow list: if isManagement();
+      allow create, delete: if isValidId(rollNumber) && isManagement();
+      allow update: if isValidId(rollNumber) && (
+        isManagement()
+        || (
+          isSignedIn()
+          && existing().status == 'pending_activation'
+          && incoming().status == 'active'
+          && incoming().rollNumber == existing().rollNumber
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'loginEmail', 'updatedAt'])
+        )
+      );
+    }
+
+    // Compound key: {ROLLNUMBER}_{ACTIVATIONCODE} so knowing Roll Number alone cannot read activationCode
+    match /studentActivations/{activationKey} {
+      allow get: if isValidId(activationKey);
+      allow list: if isManagement();
+      allow create, delete: if isValidId(activationKey) && isManagement();
+      allow update: if isValidId(activationKey) && (
+        isManagement()
+        || (
+          isSignedIn()
+          && existing().status == 'pending_activation'
+          && incoming().status == 'activated'
+          && incoming().uid == request.auth.uid
+          && incoming().rollNumber == existing().rollNumber
+          && incoming().studentDocId == existing().studentDocId
+          && incoming().activationCode == existing().activationCode
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'uid', 'loginEmail', 'updatedAt'])
+        )
+      );
+    }
+
+    match /userDirectory/{uid} {
+      allow get: if isValidId(uid) && (isManagement() || (isSignedIn() && request.auth.uid == uid));
+      allow list: if isManagement();
+      allow create: if isValidId(uid) && (
+        isManagement()
+        || (
+          isSignedIn()
+          && request.auth.uid == uid
+          && incoming().uid == request.auth.uid
+          && incoming().role == 'student'
+          && incoming().status == 'active'
+          && 'activationKey' in incoming()
+          && isValidId(incoming().activationKey)
+          && exists(/databases/$(database)/documents/studentActivations/$(incoming().activationKey))
+          && get(/databases/$(database)/documents/studentActivations/$(incoming().activationKey)).data.status == 'pending_activation'
+          && get(/databases/$(database)/documents/studentActivations/$(incoming().activationKey)).data.studentDocId == incoming().studentDocId
+          && get(/databases/$(database)/documents/studentActivations/$(incoming().activationKey)).data.rollNumber == incoming().rollNumber
+        )
+      );
+      allow update, delete: if isValidId(uid) && isManagement();
+    }
+
+    match /studentProfiles/{studentId} {
+      allow get: if isValidId(studentId) && (
+        isManagement()
+        || (isActiveStaff() && hasTeacherPermission('viewStudents'))
+        || (isActiveStudent() && existing().uid == request.auth.uid && existing().status != 'suspended')
+      );
+      allow list: if isManagement()
+        || (isActiveStaff() && hasTeacherPermission('viewStudents'))
+        || (isActiveStudent() && resource.data.uid == request.auth.uid && resource.data.status != 'suspended');
+      allow create: if isValidId(studentId) && isManagement() && isValidStudentProfile(incoming());
+      allow update: if isValidId(studentId) && isValidStudentProfile(incoming()) && (
+        isManagement()
+        || (
+          // First-time student activation binding UID to an approved student profile
+          isSignedIn()
+          && existing().status == 'approved'
+          && (!('uid' in existing()) || existing().uid == '')
+          && incoming().uid == request.auth.uid
+          && incoming().status == 'active'
+          && incoming().rollNumber == existing().rollNumber
+          && incoming().studentIdCode == existing().studentIdCode
+          && incoming().courseName == existing().courseName
+          && existsAfter(/databases/$(database)/documents/userDirectory/$(request.auth.uid))
+          && incoming().diff(existing()).affectedKeys().hasOnly(['uid', 'status', 'updatedAt'])
+        )
+        || (
+          // Approved active student updating permitted non-sensitive profile fields only
+          isActiveStudent()
+          && existing().uid == request.auth.uid
+          && existing().status in ['approved', 'active', 'completed']
+          && incoming().uid == existing().uid
+          && incoming().rollNumber == existing().rollNumber
+          && incoming().status == existing().status
+          && incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'address', 'photoUrl', 'updatedAt'])
+        )
+      );
+      allow delete: if isValidId(studentId) && isManagement();
+    }
+
+    // ---------------------------------------------------------
+    // 4. Private Academic, Examination & Financial Modules
+    // ---------------------------------------------------------
+    match /attendance/{attendanceId} {
+      allow get: if isValidId(attendanceId) && (
+        isManagement()
+        || (isActiveStaff() && hasTeacherPermission('markAttendance'))
+        || isOwnStudentData(existing())
+      );
+      allow list: if isManagement()
+        || (isActiveStaff() && hasTeacherPermission('markAttendance'))
+        || isOwnStudentData(resource.data);
+      allow create: if isValidId(attendanceId)
+        && isValidAttendance(incoming())
+        && (isManagement() || (isActiveStaff() && hasTeacherPermission('markAttendance')));
+      allow update: if isValidId(attendanceId)
+        && isValidAttendance(incoming())
+        && (isManagement() || (isActiveStaff() && hasTeacherPermission('editAttendance')));
+      allow delete: if isValidId(attendanceId) && isManagement();
+    }
+
+    match /studyMaterials/{materialId} {
+      allow get: if isValidId(materialId) && (
+        isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && existing().isPublished == true)
+      );
+      allow list: if isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && resource.data.isPublished == true);
+      allow create, update: if isValidId(materialId)
+        && (isManagement() || (isActiveStaff() && hasTeacherPermission('uploadMaterials')));
+      allow delete: if isValidId(materialId) && isManagement();
+    }
+
+    match /assignments/{assignmentId} {
+      allow get: if isValidId(assignmentId) && (
+        isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && existing().isPublished == true)
+      );
+      allow list: if isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && resource.data.isPublished == true);
+      allow create, update: if isValidId(assignmentId)
+        && (isManagement() || (isActiveStaff() && hasTeacherPermission('createAssignments')));
+      allow delete: if isValidId(assignmentId) && isManagement();
+    }
+
+    match /assignmentSubmissions/{submissionId} {
+      allow get: if isValidId(submissionId) && (
+        isManagement()
+        || (isActiveStaff() && hasTeacherPermission('createAssignments'))
+        || (isActiveStudent() && existing().studentUid == request.auth.uid)
+      );
+      allow list: if isManagement()
+        || (isActiveStaff() && hasTeacherPermission('createAssignments'))
+        || (isActiveStudent() && resource.data.studentUid == request.auth.uid);
+      allow create: if isValidId(submissionId)
+        && isActiveStudent()
+        && isValidSubmission(incoming())
+        && incoming().studentUid == request.auth.uid
+        && incoming().status == 'submitted';
+      allow update: if isValidId(submissionId)
+        && isValidSubmission(incoming())
+        && (isManagement() || (isActiveStaff() && hasTeacherPermission('createAssignments')));
+      allow delete: if isValidId(submissionId) && isManagement();
+    }
+
+    match /examinations/{examId} {
+      allow get: if isValidId(examId) && (
+        isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && existing().isPublished == true)
+      );
+      allow list: if isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && resource.data.isPublished == true);
+      allow create, update: if isValidId(examId)
+        && (isManagement() || (isActiveStaff() && hasTeacherPermission('createTests')));
+      allow delete: if isValidId(examId) && isManagement();
+    }
+
+    match /results/{resultId} {
+      allow get: if isValidId(resultId) && (
+        isManagement()
+        || (isActiveStaff() && hasTeacherPermission('viewResults'))
+        || isOwnStudentData(existing())
+      );
+      allow list: if isManagement()
+        || (isActiveStaff() && hasTeacherPermission('viewResults'))
+        || isOwnStudentData(resource.data);
+      allow create: if isValidId(resultId)
+        && isValidExamResult(incoming())
+        && ((isActiveStudent() && incoming().studentUid == request.auth.uid) || isManagement());
+      allow update, delete: if isValidId(resultId) && isManagement();
+    }
+
+    match /feeRecords/{feeId} {
+      allow get: if isValidId(feeId) && (
+        isManagement()
+        || isOwnStudentData(existing())
+      );
+      allow list: if isManagement()
+        || isOwnStudentData(resource.data);
+      allow create, update, delete: if isValidId(feeId) && isManagement();
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && (
+        isManagement()
+        || isOwnStudentData(existing())
+      );
+      allow list: if isManagement()
+        || isOwnStudentData(resource.data);
+      allow create, update, delete: if isValidId(paymentId) && isManagement();
+    }
+
+    match /financialTransactions/{txId} {
+      allow get: if isValidId(txId) && isManagement();
+      allow list: if isManagement();
+      allow create, update, delete: if isValidId(txId) && isManagement();
+    }
+
+    match /certificates/{certificateId} {
+      allow get: if isValidId(certificateId) && (
+        isManagement()
+        || isOwnStudentData(existing())
+      );
+      allow list: if isManagement()
+        || isOwnStudentData(resource.data);
+      allow create, update, delete: if isValidId(certificateId) && isManagement();
+    }
+
+    // ---------------------------------------------------------
+    // 5. Internal-Only Announcements & Audit Logs
+    // ---------------------------------------------------------
+    match /announcements/{announcementId} {
+      allow get: if isValidId(announcementId) && (
+        isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && existing().status == 'published')
+      );
+      allow list: if isManagement()
+        || isActiveStaff()
+        || (isActiveStudent() && resource.data.status == 'published');
+      allow create, update: if isValidId(announcementId)
+        && isValidAnnouncement(incoming())
+        && (isManagement() || (isActiveStaff() && hasTeacherPermission('publishAnnouncements')));
+      allow delete: if isValidId(announcementId) && isManagement();
+    }
+
+    match /announcementReads/{readId} {
+      allow get: if isValidId(readId) && isSignedIn() && (existing().userId == request.auth.uid || isManagement());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isManagement());
+      allow create, update: if isValidId(readId)
+        && isSignedIn()
+        && incoming().userId == request.auth.uid
+        && isValidString(incoming().announcementId, 1, 128);
+      allow delete: if isValidId(readId) && isManagement();
+    }
+
+    match /activityLogs/{logId} {
+      allow get: if isValidId(logId) && isManagement();
+      allow list: if isManagement();
+      allow create: if isValidId(logId)
+        && (isManagement() || isActiveStaff())
+        && incoming().actorUid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}
